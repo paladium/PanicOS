@@ -45,6 +45,35 @@
   - Serial is on your terminal; VGA opens a GTK window. Click to focus for keyboard input.
   - QEMU debug console (port 0xE9) logs to `debugcon.log`.
 
+**Dev Workflow (Always Do This After Changes)**
+
+- Inner loop: `zig build`
+  - Validates the kernel compiles after every code change (Zig + asm).
+  - Catches ABI/layout mistakes early (e.g., ISR frames, syscall args).
+- Outer loop: `scripts/mkiso.sh && scripts/run-iso.sh`
+  - Rebuilds the GRUB ISO and boots it in QEMU to test runtime behavior.
+  - Watch serial output in your terminal; check `debugcon.log` for 0xE9 writes.
+- Re-run quickly after edits:
+  - Only code change: `zig build`.
+  - Kernel boot/runtime change: `zig build && scripts/mkiso.sh && scripts/run-iso.sh`.
+- Clean builds (if caches get stale): `rm -rf .zig-cache zig-out build panicos.iso debugcon.log`
+  - Then: `zig build && scripts/mkiso.sh && scripts/run-iso.sh`.
+
+**Syscall ABI**
+
+- Call gate: `int 0x80` (IDT entry 128), DPL=3.
+- Registers:
+  - `EAX`: syscall number.
+  - `EBX`, `ECX`, `EDX`: up to three arguments.
+  - Return value in `EAX`.
+- Implemented syscalls:
+  - `1 = write(fd, buf, len)`: ignores `fd` for now, prints to serial + VGA, returns bytes written.
+  - `2 = exit(code)`: logs and enters kernel idle (enables interrupts, then `hlt` forever).
+  - `3 = yield()`: no-op placeholder for cooperative scheduling.
+- Notes:
+  - The ISR snapshots user registers from the PUSHAD frame before loading kernel segments, to avoid clobbering `EAX`.
+  - Userland must pass valid user pointers; the kernel copies from `ECX` for `len` bytes.
+
 **QEMU Notes**
 
 - The run script uses `-machine pc -device isa-kbd -display gtk` to ensure a PS/2 keyboard is present and captured.

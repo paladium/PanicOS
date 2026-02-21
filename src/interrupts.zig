@@ -8,6 +8,8 @@ extern fn read_cr3() callconv(.C) u32;
 extern fn read_cr4() callconv(.C) u32;
 extern fn read_ss() callconv(.C) u32;
 extern fn read_ds() callconv(.C) u32;
+extern fn enable_interrupts() callconv(.C) void;
+extern fn cpu_halt() callconv(.C) void;
 
 // PIC ports
 const PIC1: u16 = 0x20;
@@ -148,35 +150,38 @@ pub export fn isr_dispatch(vec: u32, err: u32, frame: [*]const u32, base_off: u3
 const SYS = struct {
     pub const write: u32 = 1;
     pub const exit: u32 = 2;
+    pub const yield: u32 = 3;
 };
 
-pub export fn syscall_dispatch(regs: [*]u32) callconv(.C) void {
-    // PUSHA layout (low -> high): EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI
-    const num = regs[0];
-    switch (num) {
+// Simple, unambiguous syscall ABI for ISR: pass EAX,EBX,ECX,EDX; return value in EAX.
+pub export fn syscall_dispatch_abi(eax: u32, ebx: u32, ecx: u32, edx: u32) callconv(.C) u32 {
+    switch (eax) {
         SYS.write => {
-            // const fd = regs[3]; // currently unused
-            const buf_ptr = regs[1];
-            const len = regs[2];
+            const buf_ptr = ecx;
+            const len = edx;
             if (len != 0 and buf_ptr != 0) {
                 const buf: [*]const u8 = @ptrFromInt(buf_ptr);
                 const slice = buf[0..@intCast(len)];
-                // For now ignore fd and write to both outputs
                 logger.write_raw(slice);
-                regs[0] = len; // bytes written
-            } else {
-                regs[0] = 0;
+                return len;
             }
+            return 0;
         },
         SYS.exit => {
-            const code = regs[3];
+            const code = ebx;
             _ = code;
             logger.log(.info, "user exit");
-            while (true) {}
+            // Idle the CPU in kernel so the system stays alive
+            enable_interrupts();
+            while (true) cpu_halt();
+        },
+        SYS.yield => {
+            // Cooperative yield: simply return for now; a scheduler could switch tasks here
+            return 0;
         },
         else => {
             logger.log(.warn, "unknown syscall");
-            regs[0] = 0xFFFF_FFFF; // -ENOSYS
+            return 0xFFFF_FFFF; // -ENOSYS
         },
     }
 }

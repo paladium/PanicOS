@@ -9,13 +9,10 @@ fi
 qemu-system-i386 \
   -cdrom panicos.iso \
   -machine pc \
-  # Use default i8042 from pc machine and attach an ISA keyboard explicitly
-  -device isa-kbd \
   -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
   -debugcon file:debugcon.log -global isa-debugcon.iobase=0xe9 \
   -serial stdio \
-  -display gtk \
+  -display none \
   -no-reboot \
   -no-shutdown \
-  -monitor none \
-  
+  -monitor none

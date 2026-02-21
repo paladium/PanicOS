@@ -17,8 +17,8 @@ pub fn map_and_enter() noreturn {
     const stack_phys = USER_STACK_TOP - 0x1000;
     paging.map_page(USER_BASE, code_phys, true, true);
     paging.map_page(USER_STACK_TOP - 0x1000, stack_phys, true, true);
-    // Map VGA text buffer for user so it can write
-    paging.map_page(0xB8000, 0xB8000, true, true);
+    // Do NOT map VGA writable to user; kernel handles writes via syscall
+    paging.map_page(0xB8000, 0xB8000, false, true);
 
     // Prepare a tiny user program that uses int 0x80 write/exit
     var code: [*]u8 = @ptrFromInt(code_phys);

@@ -40,7 +40,7 @@
 .extern isr_dispatch
 .extern irq0_handler
 .extern irq1_handler
-.extern syscall_dispatch
+.extern syscall_dispatch_abi
 
 /* Common pattern for exceptions without an error code */
 .macro ISR_NOERR n
@@ -154,16 +154,32 @@ irq1:
 /* int 0x80 syscall entry */
 isr128:
     pusha
+    /*
+     * PUSHAD frame at [esp] after pusha (lower addresses first):
+     *   [0]=EDI, [4]=ESI, [8]=EBP, [12]=ESP (orig), [16]=EBX, [20]=EDX, [24]=ECX, [28]=EAX
+     * We snapshot user EAX/EBX/ECX/EDX into scratch regs before touching AX for segment loads.
+     */
+    mov edi, [esp+28]   /* user EAX -> EDI */
+    mov ebx, [esp+16]   /* user EBX -> EBX */
+    mov esi, [esp+24]   /* user ECX -> ESI */
+    mov ebp, [esp+20]   /* user EDX -> EBP */
+    /* Switch DS/ES to kernel data (preserve current values) */
     push ds
     push es
     mov ax, 0x10
     mov ds, ax
     mov es, ax
-    /* Pass pointer to saved regs (current ESP after pusha) */
-    push esp
-    call syscall_dispatch
-    add esp, 4
+    /* Call Zig syscall handler with (eax, ebx, ecx, edx) via cdecl */
+    push ebp            /* EDX */
+    push esi            /* ECX */
+    push ebx            /* EBX */
+    push edi            /* EAX */
+    call syscall_dispatch_abi
+    add esp, 16
+    /* Restore segment registers */
     pop es
     pop ds
+    /* Store return value to saved EAX slot so popa returns it to user */
+    mov [esp+28], eax
     popa
     iretd

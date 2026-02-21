@@ -39,5 +39,3 @@ fi
 time "$GRUB_MKRESCUE" $GRUB_MODDIR -v -o panicos.iso "$ISO_DIR"
 
 echo "Created panicos.iso"
-
-echo "Created panicos.iso"
