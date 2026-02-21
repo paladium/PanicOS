@@ -1,0 +1,64 @@
+# Zig build outputs
+zig-out/
+.zig-cache/
+.zig-cache-*/
+
+# Object and binary artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.pdb
+*.dylib
+*.dll
+*.so
+*.exe
+*.out
+
+# OS/boot images and maps
+*.iso
+*.img
+*.bin
+*.elf
+*.map
+panicos.iso
+
+# Project build directories
+/build/
+/build-*/
+
+# Logs
+*.log
+debugcon.log
+
+# Editor/IDE settings
+.vscode/
+.idea/
+*.iml
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# VM/QEMU artifacts
+*.qcow2
+*.vdi
+*.vmdk
+*.nvram
+*.pid
+*.lock
+
+# Coverage and profiling
+*.dSYM/
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+
+# Temporary files
+*.swp
+*.swo
+*~
+.tmp/
+.cache/
+dist/
