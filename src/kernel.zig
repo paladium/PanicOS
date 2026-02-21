@@ -7,6 +7,7 @@ const intr = @import("interrupts.zig");
 const paging = @import("paging.zig");
 const tss = @import("tss.zig");
 const user = @import("user.zig");
+const shell = @import("shell.zig");
 
 extern fn outb(port: u16, value: u8) callconv(.C) void;
 extern fn cpu_halt() callconv(.C) void;
@@ -30,8 +31,9 @@ pub export fn kmain(multiboot_magic: u32, multiboot_info: usize) callconv(.C) no
 
     logger.log(.info, "PanicOS initialized");
     logger.log(.info, "Hello, world from PanicOS!");
-    // Setup paging and TSS, then drop to ring3 user demo
+    // Setup paging and TSS
     paging.enable();
     tss.init();
-    user.map_and_enter();
+    // Run a simple kernel shell for now
+    shell.run();
 }

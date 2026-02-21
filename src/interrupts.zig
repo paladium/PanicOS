@@ -200,9 +200,12 @@ pub export fn irq1_handler() callconv(.C) void {
 fn on_timer() void {}
 
 fn on_keyboard() void {
-    const scancode = inb(0x60);
-    var buf: [1]u8 = .{scancode};
-    logger.log_hex("KBD", buf[0..]);
+    const sc: u8 = inb(0x60);
+    if ((sc & 0x80) != 0) return; // ignore key releases
+    if (sc < keymap.len) {
+        const ch = keymap[sc];
+        if (ch != 0) kbd_push(ch);
+    }
 }
 
 pub fn pic_remap() void {
@@ -284,3 +287,41 @@ pub fn keyboard_enable() void {
     // Optional: read ACK if present
     if (ps2_wait_output_full()) { _ = inb(0x60); }
 }
+
+// Simple keyboard ring buffer and scancode->ASCII map (US, set 1, unshifted)
+var kbd_buf: [256]u8 = undefined;
+var kbd_head: u8 = 0;
+var kbd_tail: u8 = 0;
+
+fn kbd_push(ch: u8) void {
+    const next: u8 = kbd_head +% 1;
+    if (next != kbd_tail) { // drop on overflow
+        kbd_buf[@intCast(kbd_head)] = ch;
+        kbd_head = next;
+    }
+}
+
+pub fn kbd_getch() ?u8 {
+    if (kbd_head == kbd_tail) return null;
+    const ch = kbd_buf[@intCast(kbd_tail)];
+    kbd_tail +%= 1;
+    return ch;
+}
+
+const keymap: [0x60]u8 = blk: {
+    var m: [0x60]u8 = [_]u8{0} ** 0x60;
+    // digits row
+    m[0x02] = '1'; m[0x03] = '2'; m[0x04] = '3'; m[0x05] = '4'; m[0x06] = '5'; m[0x07] = '6'; m[0x08] = '7'; m[0x09] = '8'; m[0x0A] = '9'; m[0x0B] = '0'; m[0x0C] = '-'; m[0x0D] = '=';
+    // qwerty row
+    m[0x10] = 'q'; m[0x11] = 'w'; m[0x12] = 'e'; m[0x13] = 'r'; m[0x14] = 't'; m[0x15] = 'y'; m[0x16] = 'u'; m[0x17] = 'i'; m[0x18] = 'o'; m[0x19] = 'p'; m[0x1A] = '['; m[0x1B] = ']';
+    // asdf row
+    m[0x1E] = 'a'; m[0x1F] = 's'; m[0x20] = 'd'; m[0x21] = 'f'; m[0x22] = 'g'; m[0x23] = 'h'; m[0x24] = 'j'; m[0x25] = 'k'; m[0x26] = 'l'; m[0x27] = ';'; m[0x28] = '\''; m[0x29] = '`';
+    // zxcv row
+    m[0x2C] = 'z'; m[0x2D] = 'x'; m[0x2E] = 'c'; m[0x2F] = 'v'; m[0x30] = 'b'; m[0x31] = 'n'; m[0x32] = 'm'; m[0x33] = ','; m[0x34] = '.'; m[0x35] = '/';
+    // space, tab, enter, backspace
+    m[0x39] = ' ';
+    m[0x0F] = '\t';
+    m[0x1C] = '\n';
+    m[0x0E] = 0x08; // backspace
+    break :blk m;
+};

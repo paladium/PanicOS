@@ -46,6 +46,12 @@ pub fn write_byte(c: u8) void {
     switch (c) {
         '\n' => newline(),
         '\r' => { col = 0; },
+        0x08 => {
+            if (col > 0) {
+                col -= 1;
+                put_at(' ', row, col);
+            }
+        },
         else => {
             if (col >= 80) newline();
             put_at(c, row, col);

@@ -12,7 +12,7 @@ qemu-system-i386 \
   -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
   -debugcon file:debugcon.log -global isa-debugcon.iobase=0xe9 \
   -serial stdio \
-  -display none \
+  -display gtk \
   -no-reboot \
   -no-shutdown \
   -monitor none

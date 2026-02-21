@@ -7,8 +7,10 @@
 - Boots with GRUB (Multiboot v1) and runs a Zig kernel.
 - Serial (COM1) and VGA text console are initialized; a dual‑output logger prints to both.
 - GDT with kernel/user segments; IDT with exception stubs and IRQs; PIC remapped; PIT timer and PS/2 keyboard enabled.
-- Paging + TSS enabled; ring‑3 entry is stable. A demo user program maps code/stack/VGA and writes “User!” to the screen.
+- Paging + TSS enabled; ring‑3 entry is stable. Syscalls (int 0x80) work: `write`, `exit` (idles CPU). VGA is no longer writable from user; output goes through `write`.
 - ISR/IRQ return paths use 32‑bit `iret`; #GP/#PF/#UD diagnostics added. SSE/XMM is enabled early so Zig’s generated code can use it safely.
+- Minimal kernel shell with line editing (Enter, Backspace) and an `echo` command.
+- Keyboard: simple scancode→ASCII map (US, unshifted) and a small ring buffer; shell polls via `intr.kbd_getch()`.
 - QEMU run script opens a window, captures keyboard, and routes serial to your terminal.
 
 **Layout**
@@ -59,6 +61,20 @@
 - Clean builds (if caches get stale): `rm -rf .zig-cache zig-out build panicos.iso debugcon.log`
   - Then: `zig build && scripts/mkiso.sh && scripts/run-iso.sh`.
 
+**Shell Usage**
+
+- At boot you’ll see a prompt `> `.
+- Type `echo hello world` and press Enter to print `hello world`.
+- Backspace edits the current line; Enter submits it.
+- Unknown commands print `Unknown command: <name>`.
+
+**Switching To The Ring‑3 Demo**
+
+- The kernel currently starts the shell by default. To run the earlier userland demo instead:
+  - Edit `src/kernel.zig` and replace `shell.run();` with `user.map_and_enter();`.
+  - Rebuild and run: `zig build && scripts/mkiso.sh && scripts/run-iso.sh`.
+  - The demo issues `write` and `exit` syscalls from ring‑3.
+
 **Syscall ABI**
 
 - Call gate: `int 0x80` (IDT entry 128), DPL=3.
@@ -104,7 +120,8 @@
 
 **Next Steps**
 
-- Syscalls: add an int 0x80 gate (DPL=3) and a tiny ABI: `write(fd, buf, len)`, `exit(code)`, `yield()`.
+- Shell: add `help`, `clear`, `reboot`, basic command table, and Shift/caps handling.
+- Syscalls: honor `fd` in `write` (e.g., 1=stdout, 2=stderr), basic error returns.
 - Minimal userland: a small user CRT and a Zig “hello” that uses `write`/`exit` instead of poking VGA.
 - ELF32 loader: map PT_LOAD segments of a single static binary bundled in the ISO (simple initrd blob).
 - Scheduling: PIT‑driven round‑robin for a few user tasks; save/restore user regs on preemption.
