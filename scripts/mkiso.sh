@@ -6,6 +6,12 @@ set -x
 # Build the kernel (release small to avoid huge debug sections)
 time zig build -Doptimize=ReleaseSmall -Dstrip=true
 
+# Build user program(s) (clean old outputs to avoid stale binaries)
+pushd user >/dev/null
+rm -rf zig-out .zig-cache
+time zig build -Doptimize=ReleaseSmall -Dstrip=true
+popd >/dev/null
+
 # Prepare ISO root
 ISO_DIR=build/iso
 KERNEL_BIN=zig-out/bin/panicos
@@ -13,7 +19,34 @@ rm -rf "$ISO_DIR"
 mkdir -p "$ISO_DIR/boot/grub"
 
 install -m 0644 "$KERNEL_BIN" "$ISO_DIR/boot/panicos"
-install -m 0644 grub/grub.cfg "$ISO_DIR/boot/grub/grub.cfg"
+
+# Install all user apps
+mkdir -p "$ISO_DIR/boot"
+for app in user/zig-out/bin/*; do
+  [ -f "$app" ] || continue
+  base=$(basename "$app")
+  install -m 0644 "$app" "$ISO_DIR/boot/$base"
+done
+# Generate GRUB config with all modules
+CFG="$ISO_DIR/boot/grub/grub.cfg"
+cat > "$CFG" <<'EOF'
+set timeout=0
+set default=0
+serial --unit=0 --speed=115200 --word=8 --parity=no --stop=1
+terminal_input serial
+terminal_output serial
+
+menuentry "PanicOS" {
+    multiboot /boot/panicos
+EOF
+
+for app in user/zig-out/bin/*; do
+  [ -f "$app" ] || continue
+  base=$(basename "$app")
+  echo "    module /boot/$base $base" >> "$CFG"
+done
+echo "    boot" >> "$CFG"
+echo "}" >> "$CFG"
 
 # Create ISO via grub2-mkrescue or grub-mkrescue
 GRUB_MKRESCUE=""

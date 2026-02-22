@@ -7,9 +7,10 @@
 - Boots with GRUB (Multiboot v1) and runs a Zig kernel.
 - Serial (COM1) and VGA text console are initialized; a dual‑output logger prints to both.
 - GDT with kernel/user segments; IDT with exception stubs and IRQs; PIC remapped; PIT timer and PS/2 keyboard enabled.
-- Paging + TSS enabled; ring‑3 entry is stable. Syscalls (int 0x80) work: `write`, `exit` (idles CPU). VGA is no longer writable from user; output goes through `write`.
+- Paging + TSS enabled; ring‑3 entry is stable. Syscalls (int 0x80) work: `write`, `exit` (returns to shell). VGA is no longer writable from user; output goes through `write`.
 - ISR/IRQ return paths use 32‑bit `iret`; #GP/#PF/#UD diagnostics added. SSE/XMM is enabled early so Zig’s generated code can use it safely.
-- Minimal kernel shell with line editing (Enter, Backspace) and an `echo` command.
+- Kernel shell with line editing (Enter, Backspace) and commands: `help`, `ls|progs`, `run <name>`, `echo`.
+- Multiboot module loader for user ELF32 programs. Loader is overlap‑safe and supports repeated runs.
 - Keyboard: simple scancode→ASCII map (US, unshifted) and a small ring buffer; shell polls via `intr.kbd_getch()`.
 - QEMU run script opens a window, captures keyboard, and routes serial to your terminal.
 
@@ -27,7 +28,7 @@
 - `src/idt.zig`: IDT builder; exception stubs 0..31; IRQ0 (PIT), IRQ1 (keyboard); syscall gate reserved at int 0x80.
 - `src/interrupts.S`: ISR/IRQ assembly stubs with proper prologue/epilogue and 32‑bit `iret` returns; minimal int 0x80 entry stub.
 - `src/interrupts.zig`: PIC remap, PIT init, PS/2 keyboard enable; common handlers. On exceptions, logs rich diagnostics and halts.
-- `src/paging.zig`: Page directory/tables, identity mapping 0..12 MiB, helpers to map user pages with correct U/S and R/W bits, enable paging.
+- `src/paging.zig`: Page directory/tables, identity mapping 0..12 MiB, helpers to map user pages with correct U/S and R/W bits, `clear_user_mappings()` teardown, simple `alloc_phys_page()` bump allocator, enable paging.
 - `src/user.zig`: Minimal user‑mode demo mapping (code + stack + VGA) and entry call. Currently used for bring‑up; triggers the remaining exception.
 - `grub/grub.cfg`: GRUB config to load the kernel.
 - `scripts/mkiso.sh`: Builds `panicos.iso` via `grub2-mkrescue` (falls back to `grub-mkrescue`).
@@ -64,16 +65,18 @@
 **Shell Usage**
 
 - At boot you’ll see a prompt `> `.
-- Type `echo hello world` and press Enter to print `hello world`.
-- Backspace edits the current line; Enter submits it.
-- Unknown commands print `Unknown command: <name>`.
+- Type `help` to see available commands.
+- `ls` or `progs` lists all bundled user programs (from Multiboot modules).
+- `run <name>` loads and executes a program in ring‑3; on `exit` it returns to the shell and keyboard stays active.
+- `echo <text>` prints text. Backspace edits; Enter submits. Unknown commands report an error.
 
-**Switching To The Ring‑3 Demo**
+**User Programs Build & Run**
 
-- The kernel currently starts the shell by default. To run the earlier userland demo instead:
-  - Edit `src/kernel.zig` and replace `shell.run();` with `user.map_and_enter();`.
-  - Rebuild and run: `zig build && scripts/mkiso.sh && scripts/run-iso.sh`.
-  - The demo issues `write` and `exit` syscalls from ring‑3.
+- Add apps under `user/apps/` (each must define `_start` and can `@import("sys")` for syscalls).
+- `scripts/mkiso.sh` now builds all `user/apps/*.zig` into separate ELF32 binaries and includes them as GRUB modules.
+- Boot the ISO, then in the shell run:
+  - `ls` to list program names.
+  - `run <name>` to execute a program. On `exit`, control returns to the shell.
 
 **Syscall ABI**
 
@@ -84,8 +87,8 @@
   - Return value in `EAX`.
 - Implemented syscalls:
   - `1 = write(fd, buf, len)`: ignores `fd` for now, prints to serial + VGA, returns bytes written.
-  - `2 = exit(code)`: logs and enters kernel idle (enables interrupts, then `hlt` forever).
-  - `3 = yield()`: no-op placeholder for cooperative scheduling.
+  - `2 = exit(code)`: logs and returns to the shell via an ISR trampoline (interrupts remain enabled).
+  - `3 = yield()`: no‑op placeholder for cooperative scheduling.
 - Notes:
   - The ISR snapshots user registers from the PUSHAD frame before loading kernel segments, to avoid clobbering `EAX`.
   - Userland must pass valid user pointers; the kernel copies from `ECX` for `len` bytes.
@@ -113,10 +116,10 @@
 
 **Current Limitations**
 
-- Demo userland is a tiny in‑memory blob; there’s no loader yet.
-- Syscalls and a scheduler are not implemented (int 0x80 is stubbed).
-- No file system; no process isolation beyond basic paging setup.
-- VGA is mapped writable to user for the demo (not secure; temporary).
+- No filesystem; user programs are provided as GRUB Multiboot modules.
+- Simple physical allocator: bump from 16 MiB (no freeing yet); no guard pages; RWX not enforced.
+- Minimal keyboard map (no Shift/caps or punctuation variants yet).
+- No scheduler; `yield` is a stub. One user task runs at a time via the shell.
 
 **Next Steps**
 
@@ -138,3 +141,23 @@
 5) Kernel heap + frame allocator to support more mappings.
 
 With these in place, PanicOS meets the core goal and can run small userland programs alongside the kernel.
+
+**Running Zig User Programs**
+
+- Place apps in `user/apps/*.zig`; each defines `_start` and can use `const sys = @import("sys");` for syscalls (`write`, `exit`).
+- Build and package: `scripts/mkiso.sh` (auto‑builds all apps and adds them as GRUB modules).
+- Boot then use the shell: `ls` to list, `run <name>` to execute, `exit` to return.
+- Target: `x86-freestanding-none` (no libc). Address space is simple: segments map where ELF requests; the loader maps PT_LOAD segments with correct U/S and R/W bits.
+
+**Progress Log (Memory + Loader robustness)**
+
+- Fixed syscall ISR to preserve and restore user regs correctly; #GP resolved.
+- Defined a clear syscall ABI and refactored to pass `eax/ebx/ecx/edx` explicitly from the ISR.
+- Added a kernel shell (`help`, `ls|progs`, `run`, `echo`) and a kbd ring buffer.
+- Return‑to‑shell path: `exit` triggers an ISR sentinel; ISR enables IF and calls back to the shell.
+- ELF loader hardened: validates headers, identity‑maps module pages for reading, copies phdr to locals, and uses a 4 KiB bounce buffer to avoid overlap on segment copy. PT_LOAD pages are now backed by fresh physical frames (no identity writes to low RAM).
+- Paging extended: extra page tables allocated on demand to map addresses above 12 MiB.
+- Repeat run stability: after a user program `exit`s, `clear_user_mappings()` removes all user PTEs and restores the kernel's 0..12 MiB identity map as supervisor. This fixes the page fault seen when running `hello` twice.
+  - Symptom (fixed): second `run hello` caused a #PF at low addresses (e.g., CR2=0x00010000) due to stale/unmapped identity entries.
+  - Fix: keep low memory identity‑mapped for the kernel, and never write user segments directly to low physical addresses; always back with fresh frames.
+  - Result: you can `run hello` repeatedly; each run prints its message and cleanly returns to the shell.

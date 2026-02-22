@@ -152,6 +152,7 @@ const SYS = struct {
     pub const exit: u32 = 2;
     pub const yield: u32 = 3;
 };
+const SYSCALL_TERM: u32 = 0xC0DE_DEAD;
 
 // Simple, unambiguous syscall ABI for ISR: pass EAX,EBX,ECX,EDX; return value in EAX.
 pub export fn syscall_dispatch_abi(eax: u32, ebx: u32, ecx: u32, edx: u32) callconv(.C) u32 {
@@ -171,9 +172,8 @@ pub export fn syscall_dispatch_abi(eax: u32, ebx: u32, ecx: u32, edx: u32) callc
             const code = ebx;
             _ = code;
             logger.log(.info, "user exit");
-            // Idle the CPU in kernel so the system stays alive
-            enable_interrupts();
-            while (true) cpu_halt();
+            // Signal ISR to return to kernel shell instead of iret to user
+            return SYSCALL_TERM;
         },
         SYS.yield => {
             // Cooperative yield: simply return for now; a scheduler could switch tasks here

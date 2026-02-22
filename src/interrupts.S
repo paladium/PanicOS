@@ -41,6 +41,7 @@
 .extern irq0_handler
 .extern irq1_handler
 .extern syscall_dispatch_abi
+.extern on_user_exit
 
 /* Common pattern for exceptions without an error code */
 .macro ISR_NOERR n
@@ -176,10 +177,19 @@ isr128:
     push edi            /* EAX */
     call syscall_dispatch_abi
     add esp, 16
-    /* Restore segment registers */
+    /* If EAX == SYSCALL_TERM (0xC0DEDEAD), return to kernel instead of user */
+    cmp eax, 0xC0DEDEAD
+    je 1f
+    /* Normal path: restore user DS/ES, store return value, and iret */
     pop es
     pop ds
-    /* Store return value to saved EAX slot so popa returns it to user */
     mov [esp+28], eax
     popa
     iretd
+1:
+    /* Kernel continuation: discard saved user DS/ES, keep kernel segments */
+    add esp, 8
+    /* Restore kernel registers and call kernel continuation (noreturn) */
+    popa
+    sti
+    call on_user_exit
