@@ -149,6 +149,15 @@ With these in place, PanicOS meets the core goal and can run small userland prog
 - Boot then use the shell: `ls` to list, `run <name>` to execute, `exit` to return.
 - Target: `x86-freestanding-none` (no libc). Address space is simple: segments map where ELF requests; the loader maps PT_LOAD segments with correct U/S and R/W bits.
 
+**Assistant Workflow (For Future Sessions)**
+
+- Read AGENTS.md first for conventions and the quick-start playbook.
+- Use small, targeted patches; keep style consistent; avoid unrelated changes.
+- After every instruction you carry out, append a Change Log entry (below) that includes:
+  - What changed, why, files touched.
+  - How to verify: exact commands to build and run (ISO + shell steps).
+  - Date/time and initials.
+
 **Progress Log (Memory + Loader robustness)**
 
 - Fixed syscall ISR to preserve and restore user regs correctly; #GP resolved.
@@ -161,3 +170,13 @@ With these in place, PanicOS meets the core goal and can run small userland prog
   - Symptom (fixed): second `run hello` caused a #PF at low addresses (e.g., CR2=0x00010000) due to stale/unmapped identity entries.
   - Fix: keep low memory identity‑mapped for the kernel, and never write user segments directly to low physical addresses; always back with fresh frames.
   - Result: you can `run hello` repeatedly; each run prints its message and cleanly returns to the shell.
+
+**Change Log**
+
+- 2026-02-22 (AI): Add AGENTS.md and Assistant Workflow section in README.
+  - Why: Establish assistant conventions and require verification notes after each change.
+  - Files: `AGENTS.md`, `README.md` (this section).
+  - How to verify:
+    - Build kernel: `zig build -Doptimize=ReleaseSmall -Dstrip=true` (should succeed)
+    - Rebuild ISO: `scripts/mkiso.sh` (should produce `panicos.iso`)
+    - Boot ISO: `scripts/run-iso.sh`; confirm shell shows `help`/`ls|progs`/`run` commands.
